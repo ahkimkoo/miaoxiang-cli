@@ -35,20 +35,31 @@ func main() {
 	genCmd := &cobra.Command{
 		Use:   "gen",
 		Short: "提交歌曲生成任务",
-		Long: `提交歌曲生成任务
+		Long: `提交歌曲生成任务。
+
 示例:
-  miaoxiang-cli gen --lyrics "xx" --style "yy" --singer "zz" --output song.wav
-  miaoxiang-cli gen --lyrics "xx" --style "yy"  (异步，返回任务信息)`,
+  # 带歌词的歌曲生成（同步下载）
+  miaoxiang-cli gen --lyrics "春风吹过田野，花开满山坡" --style "民谣" --singer "叶雪如" --output song.wav
+
+  # 纯音乐生成（不需要歌词）
+  miaoxiang-cli gen --style "电子/舞曲" --instrumental --output instrumental.wav
+
+  # 异步提交（不等待，返回任务ID）
+  miaoxiang-cli gen --lyrics "夜空中最亮的星" --style "流行"
+
+  # 查看可用模型/歌手/风格
+  miaoxiang-cli models
+  miaoxiang-cli singers
+  miaoxiang-cli tags`,
 		RunE: cmdGen,
 	}
-	genCmd.Flags().StringVar(&flagLyrics, "lyrics", "", "歌词 (必填)")
-	genCmd.Flags().StringVar(&flagStyle, "style", "", "风格 (必填)")
-	genCmd.Flags().StringVar(&flagSinger, "singer", "", "歌手 (可选)")
+	genCmd.Flags().StringVar(&flagLyrics, "lyrics", "", "歌词 (非纯音乐时必填)")
+	genCmd.Flags().StringVar(&flagStyle, "style", "", "风格标签 (必填，用 tags 命令查看)")
+	genCmd.Flags().StringVar(&flagSinger, "singer", "", "AI歌手名称 (可选，用 singers 命令查看)")
 	genCmd.Flags().StringVar(&flagOutput, "output", "", "输出文件路径 (设置此参数表示同步等待并下载)")
-	genCmd.Flags().BoolVar(&flagInstrumental, "instrumental", false, "纯音乐模式")
+	genCmd.Flags().BoolVar(&flagInstrumental, "instrumental", false, "纯音乐模式 (无需歌词)")
 	genCmd.Flags().IntVar(&flagModel, "model", 7, "模型类型 (用 models 命令查看可选模型, 默认: 7=V5.5)")
 	genCmd.Flags().IntVar(&flagInterval, "interval", 15, "轮询间隔(秒)")
-	genCmd.MarkFlagRequired("lyrics")
 	genCmd.MarkFlagRequired("style")
 
 	jobCmd := &cobra.Command{
