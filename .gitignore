@@ -1,11 +1,13 @@
-# Binary
-miaoxiang-cli
+# Binary (root only)
+/miaoxiang-cli
+!releases/**/miaoxiang-cli*
 
 # Sensitive
 cookies.txt
 
 # Go
 *.exe
+!releases/**/*.exe
 *.exe~
 *.dll
 *.so
