@@ -183,16 +183,19 @@ type AISingerResp struct {
 }
 
 type SingerData struct {
-	Singers []AISinger `json:"Singers"`
+	AISingers []AISinger `json:"AISingers"`
 }
 
 type AISinger struct {
 	SingerID     string `json:"SingerID"`
 	Name         string `json:"Name"`
 	Description  string `json:"Description"`
+	DemoURL      string `json:"DemoURL,omitempty"`
+	CoverURL     string `json:"CoverURL,omitempty"`
 	SVCSingerID  string `json:"SVCSingerID"`
-	PitchRange   int    `json:"PitchRange"`
-	AISingerType int    `json:"AISingerType"`
+	Gender       int    `json:"Gender"`
+	ArtistID     string `json:"ArtistID,omitempty"`
+	MatchPercent int    `json:"MatchPercent"`
 }
 
 type TagListResp struct {
@@ -293,10 +296,27 @@ func (c *Client) doRequest(method, path string, body interface{}, result interfa
 		return err
 	}
 
+	// Log non-2xx responses to stderr for debugging
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		fmt.Fprintf(os.Stderr, "[DEBUG] %s %s => HTTP %d\n%s\n", method, path, resp.StatusCode, string(respBody))
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, truncateStr(string(respBody), 200))
+	}
+
 	if result != nil {
-		return json.Unmarshal(respBody, result)
+		if err := json.Unmarshal(respBody, result); err != nil {
+			fmt.Fprintf(os.Stderr, "[DEBUG] %s %s => JSON parse error on response: %s\n", method, path, truncateStr(string(respBody), 300))
+			return fmt.Errorf("JSON解析失败: %w (response: %s)", err, truncateStr(string(respBody), 200))
+		}
 	}
 	return nil
+}
+
+// truncateStr truncates a string to maxLen for debug output.
+func truncateStr(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 // CreateTask 创建歌曲生成任务 (cookie模式)
@@ -385,6 +405,13 @@ func (c *Client) GetSingers() (*AISingerResp, error) {
 	if err := c.doRequest("POST", apiSingers, AISingerReq{}, &resp); err != nil {
 		return nil, err
 	}
+	// Debug: log response summary to stderr
+	fmt.Fprintf(os.Stderr, "[DEBUG] GetSingers: statusCode=%d, errorCode=%d, errorMsg=%q, hasData=%v",
+		resp.StatusCode, resp.BaseResp.ErrorCode, resp.BaseResp.ErrorMsg, resp.Data != nil)
+	if resp.Data != nil {
+		fmt.Fprintf(os.Stderr, ", singerCount=%d", len(resp.Data.AISingers))
+	}
+	fmt.Fprintln(os.Stderr)
 	return &resp, nil
 }
 

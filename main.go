@@ -46,7 +46,7 @@ func main() {
 	genCmd.Flags().StringVar(&flagSinger, "singer", "", "歌手 (可选)")
 	genCmd.Flags().StringVar(&flagOutput, "output", "", "输出文件路径 (设置此参数表示同步等待并下载)")
 	genCmd.Flags().BoolVar(&flagInstrumental, "instrumental", false, "纯音乐模式")
-	genCmd.Flags().IntVar(&flagModel, "model", 7, "模型ID (7=Sway v5.5)")
+	genCmd.Flags().IntVar(&flagModel, "model", 7, "模型类型 (用 models 命令查看可选模型, 默认: 7=V5.5)")
 	genCmd.Flags().IntVar(&flagInterval, "interval", 15, "轮询间隔(秒)")
 	genCmd.MarkFlagRequired("lyrics")
 	genCmd.MarkFlagRequired("style")
@@ -83,7 +83,13 @@ func main() {
 		RunE:  cmdTags,
 	}
 
-	rootCmd.AddCommand(genCmd, jobCmd, jobsCmd, singersCmd, tagsCmd)
+	modelsCmd := &cobra.Command{
+		Use:   "models",
+		Short: "获取可用模型列表",
+		RunE:  cmdModels,
+	}
+
+	rootCmd.AddCommand(genCmd, jobCmd, jobsCmd, singersCmd, tagsCmd, modelsCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -233,12 +239,12 @@ func cmdSingers(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if resp.Data == nil || len(resp.Data.Singers) == 0 {
+	if resp.Data == nil || len(resp.Data.AISingers) == 0 {
 		fmt.Println("暂无歌手")
 		return nil
 	}
 
-	return printJSON(resp.Data.Singers)
+	return printJSON(resp.Data.AISingers)
 }
 
 func cmdTags(cmd *cobra.Command, args []string) error {
@@ -257,6 +263,24 @@ func cmdTags(cmd *cobra.Command, args []string) error {
 	}
 
 	return printJSON(resp.Data.GenreTags)
+}
+
+func cmdModels(cmd *cobra.Command, args []string) error {
+	client, err := getClient()
+	if err != nil {
+		return err
+	}
+
+	resp, err := client.GetConfig()
+	if err != nil {
+		return err
+	}
+	if resp.Data == nil || len(resp.Data.SupportModels) == 0 {
+		fmt.Println("暂无模型配置")
+		return nil
+	}
+
+	return printJSON(resp.Data.SupportModels)
 }
 
 func printJSON(v interface{}) error {
