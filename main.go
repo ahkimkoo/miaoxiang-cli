@@ -304,7 +304,7 @@ func printJSON(v interface{}) error {
 }
 
 func autoDownloadAPIKey(client *Client, taskID, outputPath string, interval time.Duration) error {
-	fmt.Printf("等待任务 %s 完成...\n", taskID)
+	fmt.Fprintf(os.Stderr, "等待任务 %s 完成...\n", taskID)
 	for {
 		work, err := client.GetSongWorkWithAPIKey(taskID)
 		if err != nil {
@@ -314,17 +314,24 @@ func autoDownloadAPIKey(client *Client, taskID, outputPath string, interval time
 			if work.AudioURL == "" {
 				return fmt.Errorf("任务完成但无音频URL")
 			}
-			fmt.Printf("下载音频到: %s\n", outputPath)
-			if err := DownloadFile(work.AudioURL, outputPath); err != nil {
+
+			paths := buildOutputPaths(outputPath, []UserWork{{Title: work.Title}})
+			fmt.Fprintf(os.Stderr, "  下载: %s -> %s\n", work.Title, paths[0])
+			if err := DownloadFile(work.AudioURL, paths[0]); err != nil {
 				return fmt.Errorf("下载失败: %w", err)
 			}
-			fmt.Printf("下载完成: %s\n", outputPath)
-			return nil
+
+			absPath, _ := filepath.Abs(paths[0])
+			return printJSON([]DownloadResult{{
+				File:     absPath,
+				Title:    work.Title,
+				Duration: work.Duration,
+			}})
 		}
 		if work != nil && work.Status == 5 {
 			return fmt.Errorf("任务失败")
 		}
-		fmt.Printf("  状态: 处理中\n")
+		fmt.Fprintf(os.Stderr, "  状态: 处理中\n")
 		time.Sleep(interval)
 	}
 }

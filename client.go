@@ -9,6 +9,7 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -486,20 +487,70 @@ func DownloadFile(fileURL, destPath string) error {
 	return err
 }
 
-// AutoDownload 等待任务完成并下载
+// DownloadResult 单个文件的下载结果
+type DownloadResult struct {
+	File     string `json:"file"`
+	Title    string `json:"title"`
+	Duration string `json:"duration"`
+}
+
+// buildOutputPaths 根据 outputPath 和作品列表生成不冲突的文件路径
+// outputPath 可以是目录（以/结尾）或文件路径；以作品标题命名，重复时自动加后缀
+func buildOutputPaths(outputPath string, works []UserWork) []string {
+	ext := filepath.Ext(outputPath)
+	if ext == "" {
+		ext = ".wav"
+	}
+
+	var dir string
+	if strings.HasSuffix(outputPath, "/") || outputPath == "." {
+		dir = outputPath
+	} else {
+		dir = filepath.Dir(outputPath)
+		if dir == "" {
+			dir = "."
+		}
+		os.MkdirAll(dir, 0755)
+	}
+
+	usedNames := map[string]int{}
+	var paths []string
+	for _, w := range works {
+		name := w.Title
+		if name == "" {
+			name = fmt.Sprintf("song_%d", w.WorkID)
+		}
+		// 清理文件名中的非法字符
+		name = strings.Map(func(r rune) rune {
+			if r == '/' || r == '\\' || r == ':' || r == '*' || r == '?' || r == '"' || r == '<' || r == '>' || r == '|' {
+				return '_'
+			}
+			return r
+		}, name)
+
+		base := name + ext
+		if count := usedNames[base]; count > 0 {
+			base = fmt.Sprintf("%s-%d%s", name, count+1, ext)
+		}
+		usedNames[base]++
+
+		paths = append(paths, filepath.Join(dir, base))
+	}
+	return paths
+}
+
+// AutoDownload 等待任务完成并下载全部作品
 func (c *Client) AutoDownload(taskID string, outputPath string, interval time.Duration) error {
-	fmt.Printf("等待任务 %s 完成...\n", taskID)
+	fmt.Fprintf(os.Stderr, "等待任务 %s 完成...\n", taskID)
 	for {
 		status, err := c.GetTaskStatus(taskID)
 		if err != nil {
 			return fmt.Errorf("查询状态失败: %w", err)
 		}
 
-		statusText := TaskStatusText(status.Status)
-		fmt.Printf("  状态: %s, 队列: %s\n", statusText, status.QueueTaskCount)
+		fmt.Fprintf(os.Stderr, "  状态: %s, 队列: %s\n", TaskStatusText(status.Status), status.QueueTaskCount)
 
 		if status.Status == 3 {
-			// 已完成，获取作品
 			works, err := c.GetWork(taskID)
 			if err != nil {
 				return fmt.Errorf("获取作品失败: %w", err)
@@ -508,7 +559,6 @@ func (c *Client) AutoDownload(taskID string, outputPath string, interval time.Du
 				return fmt.Errorf("任务完成但未找到作品")
 			}
 
-			// 获取播放URL
 			var vids []string
 			for _, w := range works {
 				if w.VID != "" {
@@ -524,28 +574,39 @@ func (c *Client) AutoDownload(taskID string, outputPath string, interval time.Du
 				return fmt.Errorf("获取播放URL失败: %w", err)
 			}
 
-			// 下载第一个作品
-			work := works[0]
-			audioURL := ""
-			if playInfo.Data != nil {
-				if playInfo.Data.VideoInfos != nil {
-					audioURL = playInfo.Data.VideoInfos.Mp3PlayUrls[work.VID]
+			paths := buildOutputPaths(outputPath, works)
+			var results []DownloadResult
+
+			for i, work := range works {
+				audioURL := ""
+				if playInfo.Data != nil {
+					if playInfo.Data.VideoInfos != nil {
+						audioURL = playInfo.Data.VideoInfos.Mp3PlayUrls[work.VID]
+					}
+					if audioURL == "" {
+						audioURL = playInfo.Data.OriginPlayUrls[work.VID]
+					}
 				}
 				if audioURL == "" {
-					audioURL = playInfo.Data.OriginPlayUrls[work.VID]
+					fmt.Fprintf(os.Stderr, "  跳过 %s: 无音频URL (VID=%s)\n", work.Title, work.VID)
+					continue
 				}
-			}
-			if audioURL == "" {
-				return fmt.Errorf("未找到音频URL, VID=%s", work.VID)
+
+				fmt.Fprintf(os.Stderr, "  下载: %s -> %s\n", work.Title, paths[i])
+				if err := DownloadFile(audioURL, paths[i]); err != nil {
+					fmt.Fprintf(os.Stderr, "  失败: %s: %v\n", work.Title, err)
+					continue
+				}
+
+				absPath, _ := filepath.Abs(paths[i])
+				results = append(results, DownloadResult{
+					File:     absPath,
+					Title:    work.Title,
+					Duration: work.Duration,
+				})
 			}
 
-			fmt.Printf("作品: %s (VID: %s)\n", work.Title, work.VID)
-			fmt.Printf("下载音频到: %s\n", outputPath)
-			if err := DownloadFile(audioURL, outputPath); err != nil {
-				return fmt.Errorf("下载失败: %w", err)
-			}
-			fmt.Printf("下载完成: %s (%s)\n", outputPath, work.Duration)
-			return nil
+			return printJSON(results)
 		}
 
 		if status.Status == 5 {
